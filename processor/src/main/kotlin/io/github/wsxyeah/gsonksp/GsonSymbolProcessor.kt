@@ -56,9 +56,25 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     .addException(IOException::class.java)
                     // statements
                     .beginControlFlow("if (in.peek() == \$T.NULL)", jsonTokenClass)
+                    .addStatement("in.nextNull()")
                     .addStatement("return null")
                     .endControlFlow()
-                    .addStatement("return null")
+                    .addStatement("\$T out = new \$T()", className, className)
+                    .addStatement("in.beginObject()")
+                    .beginControlFlow("while (in.hasNext())")
+                    .beginControlFlow("switch (in.nextName())")
+                    .apply {
+                        properties.forEach { property ->
+                            beginControlFlow("case \"${property.simpleName.asString()}\":")
+                            addStatement("out.set${property.simpleName.asString().capitalize()}((${property.castType()}) in.${property.readerMethodName()}())")
+                            addStatement("break")
+                            endControlFlow()
+                        }
+                    }
+                    .endControlFlow()
+                    .endControlFlow()
+                    .addStatement("in.endObject()")
+                    .addStatement("return out")
                     // statements
                     .build()
 
@@ -82,6 +98,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                 logger.warn("source: " + JavaFile.builder(packageName, adapterTypeSpec).build().toString())
 
                 JavaFile.builder(packageName, adapterTypeSpec)
+                    .indent("    ")
                     .build()
                     .writeTo(fileOutput)
 
@@ -89,6 +106,34 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             }
 
         return emptyList()
+    }
+
+    private fun KSPropertyDeclaration.castType(): String {
+        return when (val type = this.type.resolve().declaration.qualifiedName!!.asString()) {
+            "kotlin.String" -> "String"
+            "kotlin.Int" -> "int"
+            "kotlin.Long" -> "long"
+            "kotlin.Short" -> "short"
+            "kotlin.Byte" -> "byte"
+            "kotlin.Float" -> "float"
+            "kotlin.Double" -> "double"
+            "kotlin.Boolean" -> "boolean"
+            else -> throw IllegalArgumentException("unsupported type: $type")
+        }
+    }
+
+    private fun KSPropertyDeclaration.readerMethodName(): String {
+        return when (val type = this.type.resolve().declaration.qualifiedName!!.asString()) {
+            "kotlin.String" -> "nextString"
+            "kotlin.Int" -> "nextInt"
+            "kotlin.Long" -> "nextLong"
+            "kotlin.Short" -> "nextShort"
+            "kotlin.Byte" -> "nextByte"
+            "kotlin.Float" -> "nextDouble"
+            "kotlin.Double" -> "nextDouble"
+            "kotlin.Boolean" -> "nextBoolean"
+            else -> throw IllegalArgumentException("unsupported type: $type")
+        }
     }
 
 
