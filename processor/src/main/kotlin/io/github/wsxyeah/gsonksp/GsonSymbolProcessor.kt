@@ -42,6 +42,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                 ).bufferedWriter()
 
                 val className = ClassName.get(packageName, classSimpleName)
+                val gsonClass = ClassName.get("com.google.gson", "Gson")
                 val typeAdapterClass = ClassName.get("com.google.gson", "TypeAdapter")
                 val parameterizedAdapterType = ParameterizedTypeName.get(typeAdapterClass, className)
                 val jsonReaderClass = ClassName.get("com.google.gson.stream", "JsonReader")
@@ -89,9 +90,17 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     // statements
                     .build()
 
+                val constructorSpec = MethodSpec.constructorBuilder()
+                    .addModifiers(Modifier.PUBLIC)
+                    .addParameter(gsonClass, "gson")
+                    .addStatement("this.gson = gson")
+                    .build()
+
                 val adapterTypeSpec = TypeSpec.classBuilder(adapterClassName)
                     .addModifiers(Modifier.PUBLIC)
                     .superclass(parameterizedAdapterType)
+                    .addField(ClassName.get("com.google.gson", "Gson"), "gson", Modifier.PRIVATE)
+                    .addMethod(constructorSpec)
                     .addMethod(readMethodSpec)
                     .addMethod(writeMethodSpec)
                     .build()
