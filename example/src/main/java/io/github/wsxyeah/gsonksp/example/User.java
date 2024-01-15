@@ -30,6 +30,9 @@ public class User {
     @SerializedName("some_boolean")
     private boolean someBoolean;
 
+    @SerializedName("some_integer")
+    private Integer someInteger;
+
 
     @GsonSetter(name = "some_string")
     public void setSomeString(String someString) {
@@ -69,5 +72,10 @@ public class User {
     @GsonSetter(name = "some_boolean")
     public void setSomeBoolean(boolean someBoolean) {
         this.someBoolean = someBoolean;
+    }
+
+    @GsonSetter(name = "some_integer")
+    public void setSomeInteger(Integer someInteger) {
+        this.someInteger = someInteger;
     }
 }

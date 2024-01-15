@@ -1,16 +1,13 @@
 package io.github.wsxyeah.gsonksp
 
-import com.google.devtools.ksp.processing.Dependencies
-import com.google.devtools.ksp.processing.Resolver
-import com.google.devtools.ksp.processing.SymbolProcessor
-import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
-import com.google.devtools.ksp.symbol.KSAnnotated
-import com.google.devtools.ksp.symbol.KSClassDeclaration
-import com.google.devtools.ksp.symbol.KSPropertyDeclaration
+import com.google.devtools.ksp.KspExperimental
+import com.google.devtools.ksp.processing.*
+import com.google.devtools.ksp.symbol.*
 import com.squareup.javapoet.ClassName
 import com.squareup.javapoet.JavaFile
 import com.squareup.javapoet.MethodSpec
 import com.squareup.javapoet.ParameterizedTypeName
+import com.squareup.javapoet.TypeName
 import com.squareup.javapoet.TypeSpec
 import java.io.IOException
 import javax.lang.model.element.Modifier
@@ -66,8 +63,22 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     .beginControlFlow("switch (in.nextName())")
                     .apply {
                         properties.forEach { property ->
+                            val propertyType = property.type.resolve()
+                            val propertyBoxedTypeName = propertyType.declaration.toBoxedJavaPoetTypeName(resolver)
+                            val isJavaPrimitive = propertyType.isJavaPrimitive()
+                            val setterMethodName = "set${property.simpleName.asString().capitalize()}"
+
+                            logger.warn("property type: $propertyType -> $propertyBoxedTypeName")
                             beginControlFlow("case \"${property.simpleName.asString()}\":")
-                            addStatement("out.set${property.simpleName.asString().capitalize()}((${property.castType()}) in.${property.readerMethodName()}())")
+                            addStatement(
+                                "TypeAdapter<\$T> typeAdapter = gson.getAdapter(\$T.class)",
+                                propertyBoxedTypeName,
+                                propertyBoxedTypeName,
+                            )
+                            addStatement("\$T value = typeAdapter.read(in)", propertyBoxedTypeName)
+                            beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
+                            addStatement("out.${setterMethodName}(value)")
+                            endControlFlow()
                             addStatement("break")
                             endControlFlow()
                         }
@@ -117,22 +128,32 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
         return emptyList()
     }
 
-    private fun KSPropertyDeclaration.castType(): String {
-        return when (val type = this.type.resolve().declaration.qualifiedName!!.asString()) {
-            "kotlin.String" -> "String"
-            "kotlin.Int" -> "int"
-            "kotlin.Long" -> "long"
-            "kotlin.Short" -> "short"
-            "kotlin.Byte" -> "byte"
-            "kotlin.Float" -> "float"
-            "kotlin.Double" -> "double"
-            "kotlin.Boolean" -> "boolean"
-            else -> throw IllegalArgumentException("unsupported type: $type")
+    @OptIn(KspExperimental::class)
+    private fun KSDeclaration.toBoxedJavaPoetTypeName(resolver: Resolver): TypeName {
+        val fqName = this.qualifiedName ?: return ClassName.OBJECT
+        val javaName = resolver.mapKotlinNameToJava(fqName) ?: fqName
+        return ClassName.get(javaName.getQualifier(), javaName.getShortName())
+    }
+
+    private fun KSType.isJavaPrimitive(): Boolean {
+        return when (this.declaration.qualifiedName?.asString()) {
+            "kotlin.Int",
+            "kotlin.Long",
+            "kotlin.Short",
+            "kotlin.Byte",
+            "kotlin.Float",
+            "kotlin.Double",
+            "kotlin.Boolean",
+            "kotlin.Char",
+            -> nullability == Nullability.NOT_NULL
+
+            else -> false
         }
     }
 
+
     private fun KSPropertyDeclaration.readerMethodName(): String {
-        return when (val type = this.type.resolve().declaration.qualifiedName!!.asString()) {
+        return when (val type = this.type.resolve().declaration.qualifiedName?.asString()) {
             "kotlin.String" -> "nextString"
             "kotlin.Int" -> "nextInt"
             "kotlin.Long" -> "nextLong"
@@ -144,7 +165,5 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             else -> throw IllegalArgumentException("unsupported type: $type")
         }
     }
-
-
 
 }
