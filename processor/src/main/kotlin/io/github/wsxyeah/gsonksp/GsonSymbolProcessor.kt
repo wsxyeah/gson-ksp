@@ -63,13 +63,14 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     .beginControlFlow("switch (in.nextName())")
                     .apply {
                         properties.forEach { property ->
+                            val serializedName = property.serializedName()
                             val propertyType = property.type.resolve()
                             val propertyBoxedTypeName = propertyType.declaration.toBoxedJavaPoetTypeName(resolver)
                             val isJavaPrimitive = propertyType.isJavaPrimitive()
                             val setterMethodName = "set${property.simpleName.asString().capitalize()}"
+                            logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
 
-                            logger.warn("property type: $propertyType -> $propertyBoxedTypeName")
-                            beginControlFlow("case \"${property.simpleName.asString()}\":")
+                            beginControlFlow("case \$S:", serializedName)
                             addStatement(
                                 "TypeAdapter<\$T> typeAdapter = gson.getAdapter(\$T.class)",
                                 propertyBoxedTypeName,
@@ -163,6 +164,21 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             "kotlin.Double" -> "nextDouble"
             "kotlin.Boolean" -> "nextBoolean"
             else -> throw IllegalArgumentException("unsupported type: $type")
+        }
+    }
+
+    private fun KSPropertyDeclaration.serializedName(): String {
+        return this.findAnnotation("com.google.gson.annotations", "SerializedName")
+            ?.arguments
+            ?.firstOrNull() { it.name?.asString() == "value" }
+            ?.let { it.value?.toString() }
+            ?: this.simpleName.asString()
+    }
+
+    private fun KSAnnotated.findAnnotation(packageName: String, shortName: String): KSAnnotation? {
+        return this.annotations.find {
+            it.shortName.asString() == shortName &&
+                    it.annotationType.resolve().declaration.packageName.asString() == packageName
         }
     }
 
