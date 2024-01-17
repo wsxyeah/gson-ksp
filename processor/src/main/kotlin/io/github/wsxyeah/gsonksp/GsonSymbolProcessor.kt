@@ -98,6 +98,11 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                             addStatement("break")
                             endControlFlow()
                         }
+
+                        beginControlFlow("default:")
+                        addStatement("in.skipValue()")
+                        addStatement("break")
+                        endControlFlow()
                     }
                     .endControlFlow()
                     .endControlFlow()
