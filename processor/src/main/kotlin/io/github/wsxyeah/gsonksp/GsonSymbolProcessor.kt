@@ -21,6 +21,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
 
         resolver.getSymbolsWithAnnotation("io.github.wsxyeah.gsonksp.annotation.GenerateGsonAdapter")
             .filterIsInstance<KSClassDeclaration>()
+            .filter { it.origin == Origin.JAVA }
             .forEach {
                 logger.warn("annotated: " + it + "<" + it.javaClass + ">")
 
