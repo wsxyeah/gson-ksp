@@ -4,6 +4,9 @@ import io.github.wsxyeah.gsonksp.annotation.GenerateGsonAdapter;
 import com.google.gson.annotations.SerializedName;
 import io.github.wsxyeah.gsonksp.annotation.GsonSetter;
 
+import java.util.List;
+import java.util.Map;
+
 @GenerateGsonAdapter
 public class User {
     @SerializedName("some_string")
@@ -33,6 +36,14 @@ public class User {
     @SerializedName("some_integer")
     private Integer someInteger;
 
+    @SerializedName("some_integer_list")
+    private List<Integer> someIntegerList;
+
+    @SerializedName("some_map")
+    private Map<String, String> someMap;
+
+    @SerializedName("nested_map")
+    private Map<String, Map<String, String>> nestedMap;
 
     @GsonSetter(name = "some_string")
     public void setSomeString(String someString) {
@@ -77,5 +88,20 @@ public class User {
     @GsonSetter(name = "some_integer")
     public void setSomeInteger(Integer someInteger) {
         this.someInteger = someInteger;
+    }
+
+    @GsonSetter(name = "some_integer_list")
+    public void setSomeIntegerList(List<Integer> someIntegerList) {
+        this.someIntegerList = someIntegerList;
+    }
+
+    @GsonSetter(name = "some_map")
+    public void setSomeMap(Map<String, String> someMap) {
+        this.someMap = someMap;
+    }
+
+    @GsonSetter(name = "nested_map")
+    public void setNestedMap(Map<String, Map<String, String>> nestedMap) {
+        this.nestedMap = nestedMap;
     }
 }

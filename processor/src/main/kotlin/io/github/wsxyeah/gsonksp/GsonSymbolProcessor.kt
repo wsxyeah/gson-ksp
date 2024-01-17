@@ -4,6 +4,7 @@ import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.squareup.javapoet.ClassName
+import com.squareup.javapoet.CodeBlock
 import com.squareup.javapoet.JavaFile
 import com.squareup.javapoet.MethodSpec
 import com.squareup.javapoet.ParameterizedTypeName
@@ -71,11 +72,25 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                             logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
 
                             beginControlFlow("case \$S:", serializedName)
-                            addStatement(
-                                "TypeAdapter<\$T> typeAdapter = gson.getAdapter(\$T.class)",
-                                propertyBoxedTypeName,
-                                propertyBoxedTypeName,
-                            )
+                            if (propertyType.arguments.isNotEmpty()) {
+                                val typeStr = property.type.element.toString()
+                                logger.warn("typeStr[$property]: $typeStr")
+                                val typeExpr = property.type.toJavaTypeExpr(resolver)
+                                addStatement(
+                                    "\$T<${typeStr}> typeAdapter = gson.getAdapter((\$T<${typeStr}>)\$T.get(\$L))",
+                                    typeAdapterClass,
+                                    GsonTypeNames.TypeToken,
+                                    GsonTypeNames.TypeToken,
+                                    typeExpr
+                                )
+                            } else {
+                                addStatement(
+                                    "\$T<\$T> typeAdapter = gson.getAdapter(\$T.class)",
+                                    typeAdapterClass,
+                                    propertyBoxedTypeName,
+                                    propertyBoxedTypeName,
+                                )
+                            }
                             addStatement("\$T value = typeAdapter.read(in)", propertyBoxedTypeName)
                             beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
                             addStatement("out.${setterMethodName}(value)")
@@ -150,6 +165,28 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
 
             else -> false
         }
+    }
+
+    private fun KSTypeReference.toJavaTypeExpr(resolver: Resolver): CodeBlock {
+        val type = this.resolve()
+        val rawTypeName = type.declaration.toBoxedJavaPoetTypeName(resolver)
+        val rawTypeExpr = CodeBlock.of("\$T.class", rawTypeName)
+        if (type.arguments.isEmpty()) {
+            return rawTypeExpr
+        }
+
+        val typeArgumentsPlaceholder = type.arguments.joinToString(", ") { "\$L" }
+        val typeArgumentExprArr = type.arguments.map { argument ->
+            argument.type!!.toJavaTypeExpr(resolver)
+        }.toTypedArray()
+        logger.warn("typeArguments: ${typeArgumentExprArr.joinToString(", ")}")
+
+        return CodeBlock.of(
+            "\$T.newParameterizedTypeWithOwner(null, \$L, $typeArgumentsPlaceholder)",
+            GsonTypeNames.GsonTypes,
+            rawTypeExpr,
+            *typeArgumentExprArr,
+        )
     }
 
 
