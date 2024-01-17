@@ -10,40 +10,40 @@ import java.util.Map;
 @GenerateGsonAdapter
 public class User {
     @SerializedName("some_string")
-    private String someString;
+    String someString;
 
     @SerializedName("some_int")
-    private int someInt;
+    int someInt;
 
     @SerializedName("some_long")
-    private long someLong;
+    long someLong;
 
     @SerializedName("some_short")
-    private long someShort;
+    long someShort;
 
     @SerializedName("some_byte")
-    private long someByte;
+    long someByte;
 
     @SerializedName("some_float")
-    private float someFloat;
+    float someFloat;
 
     @SerializedName("some_double")
-    private double someDouble;
+    double someDouble;
 
     @SerializedName("some_boolean")
-    private boolean someBoolean;
+    boolean someBoolean;
 
     @SerializedName("some_integer")
-    private Integer someInteger;
+    Integer someInteger;
 
     @SerializedName("some_integer_list")
-    private List<Integer> someIntegerList;
+    List<Integer> someIntegerList;
 
     @SerializedName("some_map")
-    private Map<String, String> someMap;
+    Map<String, String> someMap;
 
     @SerializedName("nested_map")
-    private Map<String, Map<String, String>> nestedMap;
+    Map<String, Map<String, String>> nestedMap;
 
     @GsonSetter(name = "some_string")
     public void setSomeString(String someString) {

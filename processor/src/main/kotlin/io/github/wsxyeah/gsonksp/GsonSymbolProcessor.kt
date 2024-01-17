@@ -93,7 +93,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                             }
                             addStatement("\$T value = typeAdapter.read(in)", propertyBoxedTypeName)
                             beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
-                            addStatement("out.${setterMethodName}(value)")
+                            addStatement("out.${property.simpleName.asString()} = value")
                             endControlFlow()
                             addStatement("break")
                             endControlFlow()
