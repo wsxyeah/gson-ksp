@@ -18,7 +18,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
     private val codeGenerator = environment.codeGenerator
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
-
+        val ksJavaPoet = KSJavaPoet(resolver)
         resolver.getSymbolsWithAnnotation("io.github.wsxyeah.gsonksp.annotation.GenerateGsonAdapter")
             .filterIsInstance<KSClassDeclaration>()
             .filter { it.origin == Origin.JAVA }
@@ -67,32 +67,13 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                         properties.forEach { property ->
                             val serializedName = property.serializedName()
                             val propertyType = property.type.resolve()
-                            val propertyBoxedTypeName = propertyType.declaration.toBoxedJavaPoetTypeName(resolver)
+                            val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
                             val isJavaPrimitive = propertyType.isJavaPrimitive()
-                            val setterMethodName = "set${property.simpleName.asString().capitalize()}"
                             logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
 
                             beginControlFlow("case \$S:", serializedName)
-                            if (propertyType.arguments.isNotEmpty()) {
-                                val typeStr = property.type.element.toString()
-                                logger.warn("typeStr[$property]: $typeStr")
-                                val typeExpr = property.type.toJavaTypeExpr(resolver)
-                                addStatement(
-                                    "\$T<${typeStr}> typeAdapter = gson.getAdapter((\$T<${typeStr}>)\$T.get(\$L))",
-                                    typeAdapterClass,
-                                    GsonTypeNames.TypeToken,
-                                    GsonTypeNames.TypeToken,
-                                    typeExpr
-                                )
-                            } else {
-                                addStatement(
-                                    "\$T<\$T> typeAdapter = gson.getAdapter(\$T.class)",
-                                    typeAdapterClass,
-                                    propertyBoxedTypeName,
-                                    propertyBoxedTypeName,
-                                )
-                            }
-                            addStatement("\$T value = typeAdapter.read(in)", propertyBoxedTypeName)
+                            val propertyAdapterName = "${property.simpleName.asString()}\$Adapter"
+                            addStatement("\$T value = this.\$L.read(in)", propertyBoxedTypeName, propertyAdapterName)
                             beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
                             addStatement("out.${property.simpleName.asString()} = value")
                             endControlFlow()
@@ -123,21 +104,42 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     // statements
                     .build()
 
-                val constructorSpec = MethodSpec.constructorBuilder()
+                val constructorBuilder = MethodSpec.constructorBuilder()
                     .addModifiers(Modifier.PUBLIC)
                     .addParameter(gsonClass, "gson")
                     .addStatement("this.gson = gson")
-                    .build()
 
                 val adapterTypeSpec = TypeSpec.classBuilder(adapterClassName)
                     .addModifiers(Modifier.PUBLIC)
                     .superclass(parameterizedAdapterType)
-                    .addField(ClassName.get("com.google.gson", "Gson"), "gson", Modifier.PRIVATE)
-                    .addMethod(constructorSpec)
+                    .apply {
+                        properties.forEach { property ->
+                            val propertyType = property.type.resolve()
+                            val propertyJavaPoetTypeName = ksJavaPoet.toTypeName(propertyType)
+                            val propertyJavaPoetTypeExpr = ksJavaPoet.toTypeExpr(propertyType)
+                            val fieldAdapterName = "${property.simpleName.asString()}\$Adapter"
+
+                            logger.warn("fieldAdapter: $fieldAdapterName, $propertyJavaPoetTypeName, $propertyJavaPoetTypeExpr")
+                            addField(
+                                ParameterizedTypeName.get(GsonTypeNames.TypeAdapter, propertyJavaPoetTypeName),
+                                fieldAdapterName,
+                                Modifier.PRIVATE, Modifier.FINAL
+                            )
+                            constructorBuilder.addStatement(
+                                "this.\$L = gson.getAdapter((\$T<\$T>)\$T.get(\$L))",
+                                fieldAdapterName,
+                                GsonTypeNames.TypeToken,
+                                propertyJavaPoetTypeName,
+                                GsonTypeNames.TypeToken,
+                                propertyJavaPoetTypeExpr,
+                            )
+                        }
+                    }
+                    .addField(ClassName.get("com.google.gson", "Gson"), "gson", Modifier.PRIVATE, Modifier.FINAL)
+                    .addMethod(constructorBuilder.build())
                     .addMethod(readMethodSpec)
                     .addMethod(writeMethodSpec)
                     .build()
-                logger.warn("source: " + JavaFile.builder(packageName, adapterTypeSpec).build().toString())
 
                 JavaFile.builder(packageName, adapterTypeSpec)
                     .indent("    ")
@@ -148,13 +150,6 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             }
 
         return emptyList()
-    }
-
-    @OptIn(KspExperimental::class)
-    private fun KSDeclaration.toBoxedJavaPoetTypeName(resolver: Resolver): TypeName {
-        val fqName = this.qualifiedName ?: return ClassName.OBJECT
-        val javaName = resolver.mapKotlinNameToJava(fqName) ?: fqName
-        return ClassName.get(javaName.getQualifier(), javaName.getShortName())
     }
 
     private fun KSType.isJavaPrimitive(): Boolean {
@@ -170,43 +165,6 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             -> nullability == Nullability.NOT_NULL
 
             else -> false
-        }
-    }
-
-    private fun KSTypeReference.toJavaTypeExpr(resolver: Resolver): CodeBlock {
-        val type = this.resolve()
-        val rawTypeName = type.declaration.toBoxedJavaPoetTypeName(resolver)
-        val rawTypeExpr = CodeBlock.of("\$T.class", rawTypeName)
-        if (type.arguments.isEmpty()) {
-            return rawTypeExpr
-        }
-
-        val typeArgumentsPlaceholder = type.arguments.joinToString(", ") { "\$L" }
-        val typeArgumentExprArr = type.arguments.map { argument ->
-            argument.type!!.toJavaTypeExpr(resolver)
-        }.toTypedArray()
-        logger.warn("typeArguments: ${typeArgumentExprArr.joinToString(", ")}")
-
-        return CodeBlock.of(
-            "\$T.newParameterizedTypeWithOwner(null, \$L, $typeArgumentsPlaceholder)",
-            GsonTypeNames.GsonTypes,
-            rawTypeExpr,
-            *typeArgumentExprArr,
-        )
-    }
-
-
-    private fun KSPropertyDeclaration.readerMethodName(): String {
-        return when (val type = this.type.resolve().declaration.qualifiedName?.asString()) {
-            "kotlin.String" -> "nextString"
-            "kotlin.Int" -> "nextInt"
-            "kotlin.Long" -> "nextLong"
-            "kotlin.Short" -> "nextShort"
-            "kotlin.Byte" -> "nextByte"
-            "kotlin.Float" -> "nextDouble"
-            "kotlin.Double" -> "nextDouble"
-            "kotlin.Boolean" -> "nextBoolean"
-            else -> throw IllegalArgumentException("unsupported type: $type")
         }
     }
 
