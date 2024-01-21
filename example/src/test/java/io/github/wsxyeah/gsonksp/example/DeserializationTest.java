@@ -2,10 +2,9 @@ package io.github.wsxyeah.gsonksp.example;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.TypeAdapter;
-import com.google.gson.TypeAdapterFactory;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.JsonSyntaxException;
 import org.intellij.lang.annotations.Language;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -15,22 +14,61 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class DeserializationTest {
 
-    private static class UserGsonAdapterFactory implements TypeAdapterFactory {
+    private Gson gson;
 
-        @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            if (type.getRawType() == User.class) {
-                return (TypeAdapter<T>) new UserGsonAdapter(gson);
-            }
-            return null;
-        }
+    @BeforeEach
+    void setUp() {
+        gson = new GsonBuilder()
+                .registerTypeAdapterFactory(new TestUserGsonAdapterFactory())
+                .create();
+    }
+
+    @Test
+    void testNullObjectDeserialization() {
+        User user = gson.fromJson("null", User.class);
+        assertNull(user);
+    }
+
+    @Test
+    void testWrongTypeDeserialization() {
+        JsonSyntaxException ex = assertThrows(JsonSyntaxException.class, () ->
+                gson.fromJson("123", User.class)
+        );
+        assertTrue(ex.getMessage().contains("Expected BEGIN_OBJECT but was NUMBER"));
+    }
+
+    @Test
+    void testNullFieldsDeserialization() {
+        @Language("JSON") String json = "{\n" +
+                "  \"some_string\": null,\n" +
+                "  \"some_int\": null,\n" +
+                "  \"some_long\": null,\n" +
+                "  \"some_short\": null,\n" +
+                "  \"some_byte\": null,\n" +
+                "  \"some_float\": null,\n" +
+                "  \"some_double\": null,\n" +
+                "  \"some_boolean\": null,\n" +
+                "  \"some_integer_list\": null,\n" +
+                "  \"some_map\": null,\n" +
+                "  \"nested_map\": null\n" +
+                "}";
+        User user = gson.fromJson(json, User.class);
+        assertNotNull(user);
+        assertNull(user.someString);
+        assertEquals(0, user.someInt);
+        assertEquals(0, user.someLong);
+        assertEquals(0, user.someShort);
+        assertEquals(0, user.someByte);
+        assertEquals(0, user.someFloat);
+        assertEquals(0, user.someDouble);
+        assertEquals(false, user.someBoolean);
+        assertNull(user.someIntegerList);
+        assertNull(user.someMap);
+        assertNull(user.nestedMap);
     }
 
     @Test
     void testDeserialization() {
-        Gson gson = new GsonBuilder()
-                .registerTypeAdapterFactory(new UserGsonAdapterFactory())
-                .create();
         @Language("JSON") String json = "{\n" +
                 "  \"some_string\": \"12345\",\n" +
                 "  \"some_int\": 5555555,\n" +

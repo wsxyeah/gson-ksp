@@ -1,7 +1,7 @@
 package io.github.wsxyeah.gsonksp.example;
 
 import com.google.gson.*;
-import com.google.gson.reflect.TypeToken;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -11,24 +11,23 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class SerializationTest {
+    private Gson gson;
 
-    private static class UserGsonAdapterFactory implements TypeAdapterFactory {
+    @BeforeEach
+    void setUp() {
+        gson = new GsonBuilder()
+                .registerTypeAdapterFactory(new TestUserGsonAdapterFactory())
+                .create();
+    }
 
-        @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            if (type.getRawType() == User.class) {
-                return (TypeAdapter<T>) new UserGsonAdapter(gson);
-            }
-            return null;
-        }
+    @Test
+    void testNullObjectSerialization() {
+        String json = gson.toJson(null);
+        assertEquals("null", json);
     }
 
     @Test
     void testSerialization() {
-        Gson gson = new GsonBuilder()
-                .registerTypeAdapterFactory(new UserGsonAdapterFactory())
-                .create();
-
         User user = new User();
         user.someInt = 5555555;
         user.someString = "12345";
