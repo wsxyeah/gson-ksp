@@ -41,29 +41,18 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
         val classSimpleName = it.simpleName.asString()
         val adapterClassName = it.simpleName.asString() + "GsonAdapter"
         val properties = it.declarations.filterIsInstance<KSPropertyDeclaration>().toList()
-        val fileOutput = codeGenerator.createNewFile(
-            Dependencies.ALL_FILES,
-            packageName,
-            adapterClassName,
-            "java"
-        ).bufferedWriter()
 
         val className = ClassName.get(packageName, classSimpleName)
-        val gsonClass = ClassName.get("com.google.gson", "Gson")
-        val typeAdapterClass = ClassName.get("com.google.gson", "TypeAdapter")
-        val parameterizedAdapterType = ParameterizedTypeName.get(typeAdapterClass, className)
-        val jsonReaderClass = ClassName.get("com.google.gson.stream", "JsonReader")
-        val jsonWriterClass = ClassName.get("com.google.gson.stream", "JsonWriter")
-        val jsonTokenClass = ClassName.get("com.google.gson.stream", "JsonToken")
+        val parameterizedAdapterType = GsonTypeNames.ParameterizedTypeAdapter(className)
 
         val readMethodSpec = MethodSpec.methodBuilder("read")
             .addModifiers(Modifier.PUBLIC)
             .addAnnotation(Override::class.java)
-            .addParameter(jsonReaderClass, "in")
+            .addParameter(GsonTypeNames.JsonReader, "in")
             .returns(className)
             .addException(IOException::class.java)
             // statements
-            .beginControlFlow("if (in.peek() == \$T.NULL)", jsonTokenClass)
+            .beginControlFlow("if (in.peek() == \$T.NULL)", GsonTypeNames.JsonToken)
             .addStatement("in.nextNull()")
             .addStatement("return null")
             .endControlFlow()
@@ -73,17 +62,18 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             .beginControlFlow("switch (in.nextName())")
             .apply {
                 properties.forEach { property ->
-                    val serializedName = property.serializedName()
+                    val propertyName = property.simpleName.asString()
                     val propertyType = property.type.resolve()
                     val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
                     val isJavaPrimitive = propertyType.isJavaPrimitive()
-                    logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
+                    val serializedName = property.serializedName()
+                    val propertyAdapterName = "$propertyName\$Adapter"
+                    logger.warn("property[$propertyName]: $propertyType -> $propertyBoxedTypeName")
 
                     beginControlFlow("case \$S:", serializedName)
-                    val propertyAdapterName = "${property.simpleName.asString()}\$Adapter"
                     addStatement("\$T value = this.\$L.read(in)", propertyBoxedTypeName, propertyAdapterName)
                     beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
-                    addStatement("out.${property.simpleName.asString()} = value")
+                    addStatement("out.$propertyName = value")
                     endControlFlow()
                     addStatement("break")
                     endControlFlow()
@@ -104,7 +94,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
         val writeMethodSpec = MethodSpec.methodBuilder("write")
             .addModifiers(Modifier.PUBLIC)
             .addAnnotation(Override::class.java)
-            .addParameter(jsonWriterClass, "out")
+            .addParameter(GsonTypeNames.JsonWriter, "out")
             .addParameter(className, "value")
             .addException(IOException::class.java)
             // statements
@@ -115,15 +105,11 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             .addStatement("out.beginObject()")
             .apply {
                 properties.forEach { property ->
+                    val propertyName = property.simpleName.asString()
+                    val propertyAdapterName = "$propertyName\$Adapter"
                     val serializedName = property.serializedName()
-                    val propertyType = property.type.resolve()
-                    val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
-                    val isJavaPrimitive = propertyType.isJavaPrimitive()
-                    logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
-
-                    val propertyAdapterName = "${property.simpleName.asString()}\$Adapter"
                     addStatement("out.name(\$S)", serializedName)
-                    addStatement("this.\$L.write(out, value.${property.simpleName.asString()})", propertyAdapterName)
+                    addStatement("this.\$L.write(out, value.$propertyName)", propertyAdapterName)
                 }
             }
             .addStatement("out.endObject()")
@@ -132,7 +118,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
 
         val constructorBuilder = MethodSpec.constructorBuilder()
             .addModifiers(Modifier.PUBLIC)
-            .addParameter(gsonClass, "gson")
+            .addParameter(GsonTypeNames.Gson, "gson")
             .addStatement("this.gson = gson")
 
         val adapterTypeSpec = TypeSpec.classBuilder(adapterClassName)
@@ -147,7 +133,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
 
                     logger.warn("fieldAdapter: $fieldAdapterName, $propertyJavaPoetTypeName, $propertyJavaPoetTypeExpr")
                     addField(
-                        ParameterizedTypeName.get(GsonTypeNames.TypeAdapter, propertyJavaPoetTypeName),
+                        GsonTypeNames.ParameterizedTypeAdapter(propertyJavaPoetTypeName),
                         fieldAdapterName,
                         Modifier.PRIVATE, Modifier.FINAL
                     )
@@ -161,17 +147,22 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     )
                 }
             }
-            .addField(ClassName.get("com.google.gson", "Gson"), "gson", Modifier.PRIVATE, Modifier.FINAL)
+            .addField(GsonTypeNames.Gson, "gson", Modifier.PRIVATE, Modifier.FINAL)
             .addMethod(constructorBuilder.build())
             .addMethod(readMethodSpec)
             .addMethod(writeMethodSpec)
             .build()
 
-        JavaFile.builder(packageName, adapterTypeSpec)
+        val javaFile = JavaFile.builder(packageName, adapterTypeSpec)
             .indent("    ")
             .build()
-            .writeTo(fileOutput)
-        fileOutput.close()
+
+        codeGenerator.createNewFile(
+            Dependencies.ALL_FILES,
+            packageName,
+            adapterClassName,
+            "java"
+        ).bufferedWriter().use(javaFile::writeTo)
 
         return ClassName.get(packageName, adapterClassName)
     }
@@ -183,20 +174,15 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
         logger.warn("generateTypeAdapterFactory: $adapterClassNames")
         val packageName = "io.github.wsxyeah.gsonksp.generated"
         val factoryClassName = "AggregatedTypeAdapterFactory"
-        val fileOutput = codeGenerator.createNewFile(
-            Dependencies.ALL_FILES,
-            packageName,
-            factoryClassName,
-            "java"
-        ).bufferedWriter()
 
+        val typeVariableT = TypeVariableName.get("T")
         val createMethodSpec = MethodSpec.methodBuilder("create")
             .addModifiers(Modifier.PUBLIC)
             .addAnnotation(Override::class.java)
-            .addTypeVariable(TypeVariableName.get("T"))
+            .addTypeVariable(typeVariableT)
             .addParameter(GsonTypeNames.Gson, "gson")
-            .addParameter(ParameterizedTypeName.get(GsonTypeNames.TypeToken, TypeVariableName.get("T")), "type")
-            .returns(ParameterizedTypeName.get(GsonTypeNames.TypeAdapter, TypeVariableName.get("T")))
+            .addParameter(GsonTypeNames.ParameterizedTypeToken(typeVariableT), "type")
+            .returns(GsonTypeNames.ParameterizedTypeAdapter(typeVariableT))
             .addStatement("Class rawType = type.getRawType()")
             .addStatement("if (rawType == null) return null")
             .beginControlFlow("switch (rawType.getCanonicalName())")
@@ -216,10 +202,15 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
             .addSuperinterface(GsonTypeNames.TypeAdapterFactory)
             .addMethod(createMethodSpec)
             .build()
-        JavaFile.builder(packageName, factoryTypeSpec)
+        val javaFile = JavaFile.builder(packageName, factoryTypeSpec)
             .indent("    ")
             .build()
-            .writeTo(fileOutput)
-        fileOutput.close()
+
+        codeGenerator.createNewFile(
+            Dependencies.ALL_FILES,
+            packageName,
+            factoryClassName,
+            "java"
+        ).bufferedWriter().use(javaFile::writeTo)
     }
 }
