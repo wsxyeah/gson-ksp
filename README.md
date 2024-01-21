@@ -8,8 +8,12 @@ Note this project is still working in progress 🚧.
 
 ## TODOs
 
-- [ ] Java serialization code generation
-- [ ] TypeAdapterFactory generateion
+- [x] Java deserialization code generation
+- [x] Java serialization code generation
+- [x] Java TypeAdapterFactory generation
+- [x] Basic `@SerializedName` annotation support
+- [ ] Kotlin code generation
+- [ ] Code decoupling
+- [ ] Replace switch-case branching with HashMap for better performance
 - [ ] Field include/exclude rules support
-- [ ] Kotlin support
 - [ ] Code generation on demand
