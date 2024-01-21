@@ -1,15 +1,11 @@
 package io.github.wsxyeah.gsonksp
 
-import com.google.devtools.ksp.KspExperimental
-import com.google.devtools.ksp.processing.*
+import com.google.devtools.ksp.processing.Dependencies
+import com.google.devtools.ksp.processing.Resolver
+import com.google.devtools.ksp.processing.SymbolProcessor
+import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
 import com.google.devtools.ksp.symbol.*
-import com.squareup.javapoet.ClassName
-import com.squareup.javapoet.CodeBlock
-import com.squareup.javapoet.JavaFile
-import com.squareup.javapoet.MethodSpec
-import com.squareup.javapoet.ParameterizedTypeName
-import com.squareup.javapoet.TypeName
-import com.squareup.javapoet.TypeSpec
+import com.squareup.javapoet.*
 import java.io.IOException
 import javax.lang.model.element.Modifier
 
@@ -17,9 +13,13 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
     private val logger = environment.logger
     private val codeGenerator = environment.codeGenerator
 
+    companion object {
+        private const val GENERATE_GSON_ADAPTER_ANNOTATION = "io.github.wsxyeah.gsonksp.annotation.GenerateGsonAdapter"
+    }
+
     override fun process(resolver: Resolver): List<KSAnnotated> {
         val ksJavaPoet = KSJavaPoet(resolver)
-        resolver.getSymbolsWithAnnotation("io.github.wsxyeah.gsonksp.annotation.GenerateGsonAdapter")
+        resolver.getSymbolsWithAnnotation(GENERATE_GSON_ADAPTER_ANNOTATION)
             .filterIsInstance<KSClassDeclaration>()
             .filter { it.origin == Origin.JAVA }
             .forEach {
@@ -100,7 +100,25 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     .addParameter(className, "value")
                     .addException(IOException::class.java)
                     // statements
+                    .beginControlFlow("if (value == null)")
+                    .addStatement("out.nullValue()")
                     .addStatement("return")
+                    .endControlFlow()
+                    .addStatement("out.beginObject()")
+                    .apply {
+                        properties.forEach { property ->
+                            val serializedName = property.serializedName()
+                            val propertyType = property.type.resolve()
+                            val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
+                            val isJavaPrimitive = propertyType.isJavaPrimitive()
+                            logger.warn("property[${property.simpleName}]: $propertyType -> $propertyBoxedTypeName")
+
+                            val propertyAdapterName = "${property.simpleName.asString()}\$Adapter"
+                            addStatement("out.name(\$S)", serializedName)
+                            addStatement("this.\$L.write(out, value.${property.simpleName.asString()})", propertyAdapterName)
+                        }
+                    }
+                    .addStatement("out.endObject()")
                     // statements
                     .build()
 
