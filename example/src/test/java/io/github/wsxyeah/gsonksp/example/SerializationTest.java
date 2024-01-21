@@ -1,6 +1,7 @@
 package io.github.wsxyeah.gsonksp.example;
 
 import com.google.gson.*;
+import io.github.wsxyeah.gsonksp.generated.AggregatedTypeAdapterFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +17,7 @@ public class SerializationTest {
     @BeforeEach
     void setUp() {
         gson = new GsonBuilder()
-                .registerTypeAdapterFactory(new TestUserGsonAdapterFactory())
+                .registerTypeAdapterFactory(new AggregatedTypeAdapterFactory())
                 .create();
     }
 

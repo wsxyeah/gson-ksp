@@ -18,6 +18,7 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
     }
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
+        val adapterClassNames = mutableListOf<ClassName>()
         val ksJavaPoet = KSJavaPoet(resolver)
         resolver.getSymbolsWithAnnotation(GENERATE_GSON_ADAPTER_ANNOTATION)
             .filterIsInstance<KSClassDeclaration>()
@@ -163,11 +164,61 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
                     .indent("    ")
                     .build()
                     .writeTo(fileOutput)
+                fileOutput.close()
 
-                fileOutput.flush()
+                adapterClassNames.add(ClassName.get(packageName, adapterClassName))
             }
 
+        generateTypeAdapterFactory(adapterClassNames)
+
         return emptyList()
+    }
+
+    private fun generateTypeAdapterFactory(adapterClassNames: List<ClassName>) {
+        if (adapterClassNames.isEmpty()) {
+            return
+        }
+        logger.warn("generateTypeAdapterFactory: $adapterClassNames")
+        val packageName = "io.github.wsxyeah.gsonksp.generated"
+        val factoryClassName = "AggregatedTypeAdapterFactory"
+        val fileOutput = codeGenerator.createNewFile(
+            Dependencies.ALL_FILES,
+            packageName,
+            factoryClassName,
+            "java"
+        ).bufferedWriter()
+
+        val createMethodSpec = MethodSpec.methodBuilder("create")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override::class.java)
+            .addTypeVariable(TypeVariableName.get("T"))
+            .addParameter(GsonTypeNames.Gson, "gson")
+            .addParameter(ParameterizedTypeName.get(GsonTypeNames.TypeToken, TypeVariableName.get("T")), "type")
+            .returns(ParameterizedTypeName.get(GsonTypeNames.TypeAdapter, TypeVariableName.get("T")))
+            .addStatement("Class rawType = type.getRawType()")
+            .addStatement("if (rawType == null) return null")
+            .beginControlFlow("switch (rawType.getCanonicalName())")
+            .apply {
+                adapterClassNames.forEach { adapterClassName ->
+                    beginControlFlow("case \$S:", adapterClassName.canonicalName())
+                    addStatement("return (TypeAdapter) new \$T(gson)", adapterClassName)
+                    endControlFlow()
+                }
+            }
+            .addStatement("default: return null")
+            .endControlFlow()
+            .build()
+
+        val factoryTypeSpec = TypeSpec.classBuilder(factoryClassName)
+            .addModifiers(Modifier.PUBLIC)
+            .addSuperinterface(GsonTypeNames.TypeAdapterFactory)
+            .addMethod(createMethodSpec)
+            .build()
+        JavaFile.builder(packageName, factoryTypeSpec)
+            .indent("    ")
+            .build()
+            .writeTo(fileOutput)
+        fileOutput.close()
     }
 
     private fun KSType.isJavaPrimitive(): Boolean {

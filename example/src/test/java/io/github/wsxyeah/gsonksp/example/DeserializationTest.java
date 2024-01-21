@@ -3,6 +3,7 @@ package io.github.wsxyeah.gsonksp.example;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
+import io.github.wsxyeah.gsonksp.generated.AggregatedTypeAdapterFactory;
 import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ public class DeserializationTest {
     @BeforeEach
     void setUp() {
         gson = new GsonBuilder()
-                .registerTypeAdapterFactory(new TestUserGsonAdapterFactory())
+                .registerTypeAdapterFactory(new AggregatedTypeAdapterFactory())
                 .create();
     }
 
