@@ -1,4 +1,4 @@
-package io.github.wsxyeah.gsonksp
+package io.github.wsxyeah.gsonksp.java
 
 import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.processing.Resolver
@@ -36,7 +36,7 @@ class KSJavaPoet(
         }.toTypedArray()
         return CodeBlock.of(
             "\$T.newParameterizedTypeWithOwner(null, \$L, $argumentsPlaceholder)",
-            GsonTypeNames.GsonTypes,
+            GsonJavaTypeNames.GsonTypes,
             rawTypeExpr,
             *argumentTypeNameExprArr,
         )

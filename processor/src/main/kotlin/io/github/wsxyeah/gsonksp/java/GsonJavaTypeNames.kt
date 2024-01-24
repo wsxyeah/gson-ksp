@@ -1,10 +1,10 @@
-package io.github.wsxyeah.gsonksp
+package io.github.wsxyeah.gsonksp.java
 
 import com.squareup.javapoet.ClassName
 import com.squareup.javapoet.ParameterizedTypeName
 import com.squareup.javapoet.TypeName
 
-object GsonTypeNames {
+object GsonJavaTypeNames {
     val Gson: ClassName = ClassName.get("com.google.gson", "Gson")
     val TypeAdapter: ClassName = ClassName.get("com.google.gson", "TypeAdapter")
     val TypeAdapterFactory: ClassName = ClassName.get("com.google.gson", "TypeAdapterFactory")
