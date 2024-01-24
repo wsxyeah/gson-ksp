@@ -7,6 +7,8 @@ import com.google.devtools.ksp.symbol.KSAnnotated
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import io.github.wsxyeah.gsonksp.java.JavaClassProcessor
 import io.github.wsxyeah.gsonksp.java.KSJavaPoet
+import io.github.wsxyeah.gsonksp.kotlin.KSKotlinPoet
+import io.github.wsxyeah.gsonksp.kotlin.KotlinClassProcessor
 
 class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) : SymbolProcessor {
     private val logger = environment.logger
@@ -23,6 +25,10 @@ class GsonSymbolProcessor(private val environment: SymbolProcessorEnvironment) :
         val ksJavaPoet = KSJavaPoet(resolver)
         val javaClassProcessor = JavaClassProcessor(codeGenerator, logger, ksJavaPoet)
         javaClassProcessor.processClasses(classDeclarations)
+
+        val ksKotlinPoet = KSKotlinPoet(resolver)
+        val kotlinClassProcessor = KotlinClassProcessor(codeGenerator, logger, ksKotlinPoet)
+        kotlinClassProcessor.processClasses(classDeclarations)
 
         return emptyList()
     }
