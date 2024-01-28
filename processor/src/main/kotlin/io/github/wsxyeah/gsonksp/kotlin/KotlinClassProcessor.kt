@@ -6,6 +6,7 @@ import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.Origin
 import com.squareup.kotlinpoet.*
+import io.github.wsxyeah.gsonksp.serializedName
 
 class KotlinClassProcessor(
     private val codeGenerator: CodeGenerator,
@@ -40,7 +41,22 @@ class KotlinClassProcessor(
             .addModifiers(KModifier.OVERRIDE)
             .addParameter("out", GsonKotlinTypeNames.JsonWriter)
             .addParameter("value", className.copy(nullable = true))
-            .addStatement("TODO(\"not implemented\")")
+            .beginControlFlow("if (value == null)")
+            .addStatement("`out`.nullValue()")
+            .addStatement("return")
+            .endControlFlow()
+            .addStatement("`out`.beginObject()")
+            .apply {
+                properties.forEach {
+                    val propertyName = it.simpleName.asString()
+                    val propertyTypeAdapterName = "$propertyName\$TypeAdapter"
+                    val serializedName = it.serializedName()
+
+                    addStatement("`out`.name(%S)", serializedName)
+                    addStatement("this.%N.write(`out`, value.%L)", propertyTypeAdapterName, propertyName)
+                }
+            }
+            .addStatement("`out`.endObject()")
             .build()
 
         val constructor = FunSpec.constructorBuilder()
