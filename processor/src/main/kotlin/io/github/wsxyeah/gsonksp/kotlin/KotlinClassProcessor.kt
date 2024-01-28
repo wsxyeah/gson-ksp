@@ -33,7 +33,7 @@ class KotlinClassProcessor(
 
         val typeAdapterProperties = generateTypeAdapterProperties(className, properties).asIterable()
         val constructor = generateConstructor(className, properties)
-        val readFun = generateReadFun(className, properties)
+        val readFun = generateReadFun(classDeclaration, className, properties)
         val writeFun = generateWriteFun(className, properties)
 
         val adapterClassSpec = TypeSpec.classBuilder(adapterClassName)
@@ -57,13 +57,54 @@ class KotlinClassProcessor(
         ).bufferedWriter().use(ktFile::writeTo)
     }
 
-    private fun generateReadFun(className: ClassName, properties: Sequence<KSPropertyDeclaration>) =
-        FunSpec.builder("read")
-            .addModifiers(KModifier.OVERRIDE)
-            .returns(className.copy(nullable = true))
-            .addParameter("in", GsonKotlinTypeNames.JsonReader)
-            .addStatement("TODO(\"not implemented\")")
-            .build()
+    private fun generateReadFun(
+        classDeclaration: KSClassDeclaration,
+        className: ClassName,
+        properties: Sequence<KSPropertyDeclaration>,
+    ) = FunSpec.builder("read")
+        .addModifiers(KModifier.OVERRIDE)
+        .returns(className.copy(nullable = true))
+        .addParameter("in", GsonKotlinTypeNames.JsonReader)
+        .beginControlFlow("if (`in`.peek() == %T.NULL)", GsonKotlinTypeNames.JsonToken)
+        .addStatement("return null")
+        .endControlFlow()
+        .addStatement("`in`.beginObject()")
+        .apply {
+            properties.forEach {
+                val propertyName = it.simpleName.asString()
+                val propertyType = it.type.resolve()
+                val propertyTypeName = ksKotlinPoet.toTypeName(propertyType)
+                addStatement("var %L: %T = null", propertyName, propertyTypeName.copy(nullable = true))
+            }
+        }
+        .beginControlFlow("while (`in`.hasNext())")
+        .beginControlFlow("when (`in`.nextName())")
+        .apply {
+            properties.forEach {
+                val propertyName = it.simpleName.asString()
+                val propertyTypeAdapterName = "$propertyName\$TypeAdapter"
+                val serializedName = it.serializedName()
+
+                beginControlFlow("%S ->", serializedName)
+                addStatement("%N = this.%N.read(`in`)", propertyName, propertyTypeAdapterName)
+                endControlFlow()
+            }
+            beginControlFlow("else ->")
+            addStatement("`in`.skipValue()")
+            endControlFlow()
+        }
+        .endControlFlow()
+        .endControlFlow()
+        .addStatement("`in`.endObject()")
+        .apply {
+            val primaryConstructor = classDeclaration.primaryConstructor ?: return@apply
+            val constructorArgs = primaryConstructor.parameters.map {
+                val paramName = it.name!!.asString()
+                CodeBlock.of("%L = %L!!", paramName, paramName).toString()
+            }
+            addStatement("return %T(%L)", className, constructorArgs.joinToString(", "))
+        }
+        .build()
 
     private fun generateWriteFun(className: ClassName, properties: Sequence<KSPropertyDeclaration>): FunSpec =
         FunSpec.builder("write")
