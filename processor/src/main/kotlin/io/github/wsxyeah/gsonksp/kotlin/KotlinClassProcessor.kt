@@ -4,6 +4,7 @@ import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
 import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.symbol.KSClassDeclaration
+import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.Origin
 import com.squareup.kotlinpoet.*
 import io.github.wsxyeah.gsonksp.serializedName
@@ -30,14 +31,42 @@ class KotlinClassProcessor(
         val parameterizedTypeAdapterTypeName = GsonKotlinTypeNames.ParameterizedTypeAdapter(className)
         val properties = classDeclaration.getAllProperties()
 
-        val readFun = FunSpec.builder("read")
+        val typeAdapterProperties = generateTypeAdapterProperties(className, properties).asIterable()
+        val constructor = generateConstructor(className, properties)
+        val readFun = generateReadFun(className, properties)
+        val writeFun = generateWriteFun(className, properties)
+
+        val adapterClassSpec = TypeSpec.classBuilder(adapterClassName)
+            .superclass(parameterizedTypeAdapterTypeName)
+            .addProperty("gson", GsonKotlinTypeNames.Gson, KModifier.PRIVATE)
+            .addProperties(typeAdapterProperties)
+            .primaryConstructor(constructor)
+            .addFunction(readFun)
+            .addFunction(writeFun)
+            .build()
+        val ktFile = FileSpec.builder(adapterClassName)
+            .addType(adapterClassSpec)
+            .indent("    ")
+            .build()
+
+        codeGenerator.createNewFile(
+            Dependencies.ALL_FILES,
+            packageName,
+            adapterClassName.simpleName,
+            "kt",
+        ).bufferedWriter().use(ktFile::writeTo)
+    }
+
+    private fun generateReadFun(className: ClassName, properties: Sequence<KSPropertyDeclaration>) =
+        FunSpec.builder("read")
             .addModifiers(KModifier.OVERRIDE)
             .returns(className.copy(nullable = true))
             .addParameter("in", GsonKotlinTypeNames.JsonReader)
             .addStatement("TODO(\"not implemented\")")
             .build()
 
-        val writeFun = FunSpec.builder("write")
+    private fun generateWriteFun(className: ClassName, properties: Sequence<KSPropertyDeclaration>): FunSpec =
+        FunSpec.builder("write")
             .addModifiers(KModifier.OVERRIDE)
             .addParameter("out", GsonKotlinTypeNames.JsonWriter)
             .addParameter("value", className.copy(nullable = true))
@@ -59,6 +88,7 @@ class KotlinClassProcessor(
             .addStatement("`out`.endObject()")
             .build()
 
+    private fun generateConstructor(className: ClassName, properties: Sequence<KSPropertyDeclaration>): FunSpec {
         val constructor = FunSpec.constructorBuilder()
             .addParameter("gson", GsonKotlinTypeNames.Gson)
             .addStatement("this.gson = gson")
@@ -76,35 +106,21 @@ class KotlinClassProcessor(
             )
         }
 
-        val adapterClassSpec = TypeSpec.classBuilder(adapterClassName)
-            .superclass(parameterizedTypeAdapterTypeName)
-            .addProperty("gson", GsonKotlinTypeNames.Gson, KModifier.PRIVATE)
-            .apply {
-                properties.forEach {
-                    val propertyName = it.simpleName.asString()
-                    val propertyType = it.type.resolve()
-                    val propertyAdapterName = "$propertyName\$TypeAdapter"
-                    addProperty(
-                        propertyAdapterName,
-                        GsonKotlinTypeNames.ParameterizedTypeAdapter(ksKotlinPoet.toTypeName(propertyType)),
-                        KModifier.PRIVATE
-                    )
-                }
-            }
-            .primaryConstructor(constructor.build())
-            .addFunction(readFun)
-            .addFunction(writeFun)
-            .build()
-        val ktFile = FileSpec.builder(adapterClassName)
-            .addType(adapterClassSpec)
-            .indent("    ")
-            .build()
-
-        codeGenerator.createNewFile(
-            Dependencies.ALL_FILES,
-            packageName,
-            adapterClassName.simpleName,
-            "kt",
-        ).bufferedWriter().use(ktFile::writeTo)
+        return constructor.build()
     }
+
+    private fun generateTypeAdapterProperties(
+        className: ClassName,
+        properties: Sequence<KSPropertyDeclaration>,
+    ): Sequence<PropertySpec> =
+        properties.map {
+            val propertyName = it.simpleName.asString()
+            val propertyType = it.type.resolve()
+            val propertyAdapterName = "$propertyName\$TypeAdapter"
+            PropertySpec.builder(
+                propertyAdapterName,
+                GsonKotlinTypeNames.ParameterizedTypeAdapter(ksKotlinPoet.toTypeName(propertyType)),
+                KModifier.PRIVATE
+            ).build()
+        }
 }
