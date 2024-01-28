@@ -27,6 +27,7 @@ class KotlinClassProcessor(
         val className = ClassName(packageName, simpleClassName)
         val adapterClassName = ClassName(packageName, simpleClassName + "GsonAdapter")
         val parameterizedTypeAdapterTypeName = GsonKotlinTypeNames.ParameterizedTypeAdapter(className)
+        val properties = classDeclaration.getAllProperties()
 
         val readFun = FunSpec.builder("read")
             .addModifiers(KModifier.OVERRIDE)
@@ -42,8 +43,39 @@ class KotlinClassProcessor(
             .addStatement("TODO(\"not implemented\")")
             .build()
 
+        val constructor = FunSpec.constructorBuilder()
+            .addParameter("gson", GsonKotlinTypeNames.Gson)
+            .addStatement("this.gson = gson")
+
+        properties.forEach {
+            val propertyName = it.simpleName.asString()
+            val propertyType = it.type.resolve()
+            val propertyTypeName = ksKotlinPoet.toTypeName(propertyType)
+            constructor.addStatement(
+                "this.%N = gson.getAdapter(%T.get(%L) as %T)",
+                "$propertyName\$TypeAdapter",
+                GsonKotlinTypeNames.TypeToken,
+                ksKotlinPoet.toTypeExpr(propertyType),
+                GsonKotlinTypeNames.ParameterizedTypeToken(propertyTypeName),
+            )
+        }
+
         val adapterClassSpec = TypeSpec.classBuilder(adapterClassName)
             .superclass(parameterizedTypeAdapterTypeName)
+            .addProperty("gson", GsonKotlinTypeNames.Gson, KModifier.PRIVATE)
+            .apply {
+                properties.forEach {
+                    val propertyName = it.simpleName.asString()
+                    val propertyType = it.type.resolve()
+                    val propertyAdapterName = "$propertyName\$TypeAdapter"
+                    addProperty(
+                        propertyAdapterName,
+                        GsonKotlinTypeNames.ParameterizedTypeAdapter(ksKotlinPoet.toTypeName(propertyType)),
+                        KModifier.PRIVATE
+                    )
+                }
+            }
+            .primaryConstructor(constructor.build())
             .addFunction(readFun)
             .addFunction(writeFun)
             .build()
