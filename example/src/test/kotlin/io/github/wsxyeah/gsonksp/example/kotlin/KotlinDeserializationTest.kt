@@ -16,6 +16,9 @@ class KotlinDeserializationTest {
             if (type.rawType == Item::class.java) {
                 return ItemGsonAdapter(gson) as TypeAdapter<T>
             }
+            if (type.rawType == ItemWithDefault::class.java) {
+                return ItemWithDefaultGsonAdapter(gson) as TypeAdapter<T>
+            }
             return null
         }
     }
@@ -62,5 +65,22 @@ class KotlinDeserializationTest {
         assertEquals(1.toShort(), item.someShort)
         assertEquals(1.toByte(), item.someByte)
         assertEquals('a', item.someChar)
+    }
+
+    @Test
+    fun `test deserialization with default value`() {
+        val jsonStr = "{\"requiredString\": \"required string\"}"
+        val item = gson.fromJson(jsonStr, ItemWithDefault::class.java)
+        val defaultItem = ItemWithDefault(requiredString =  "required string")
+        assertNotNull(item)
+        assertEquals(defaultItem.someInt, item.someInt)
+        assertEquals(defaultItem.someString, item.someString)
+        assertEquals(defaultItem.someBoolean, item.someBoolean)
+        assertEquals(defaultItem.someDouble, item.someDouble, 0.0001)
+        assertEquals(defaultItem.someFloat, item.someFloat, 0.0001f)
+        assertEquals(defaultItem.someLong, item.someLong)
+        assertEquals(defaultItem.someShort, item.someShort)
+        assertEquals(defaultItem.someByte, item.someByte)
+        assertEquals(defaultItem.someChar, item.someChar)
     }
 }

@@ -39,4 +39,18 @@ class KSKotlinPoet(
             *argumentTypeNameExprArr,
         )
     }
+
+    fun getTypeDefaultValue(type: KSType): CodeBlock {
+        return when (type) {
+            resolver.builtIns.booleanType -> CodeBlock.of("false")
+            resolver.builtIns.byteType -> CodeBlock.of("0")
+            resolver.builtIns.charType -> CodeBlock.of("0.toChar()")
+            resolver.builtIns.doubleType -> CodeBlock.of("0.0")
+            resolver.builtIns.floatType -> CodeBlock.of("0.0f")
+            resolver.builtIns.intType -> CodeBlock.of("0")
+            resolver.builtIns.longType -> CodeBlock.of("0")
+            resolver.builtIns.shortType -> CodeBlock.of("0")
+            else -> CodeBlock.of("null")
+        }
+    }
 }

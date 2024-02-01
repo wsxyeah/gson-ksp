@@ -7,6 +7,7 @@ import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSPropertyDeclaration
 import com.google.devtools.ksp.symbol.Origin
 import com.squareup.kotlinpoet.*
+import com.squareup.kotlinpoet.ksp.toTypeName
 import io.github.wsxyeah.gsonksp.serializedName
 
 class KotlinClassProcessor(
@@ -70,23 +71,34 @@ class KotlinClassProcessor(
         .endControlFlow()
         .addStatement("`in`.beginObject()")
         .apply {
+            val maskCount = (properties.count() + 31) / 32
+            for (i in 0 until maskCount) {
+                addStatement("var mask${i} = -1")
+            }
             properties.forEach {
                 val propertyName = it.simpleName.asString()
                 val propertyType = it.type.resolve()
                 val propertyTypeName = ksKotlinPoet.toTypeName(propertyType)
-                addStatement("var %L: %T = null", propertyName, propertyTypeName.copy(nullable = true))
+                addStatement(
+                    "var %L: %T = %L",
+                    propertyName,
+                    propertyTypeName.copy(nullable = true),
+                    ksKotlinPoet.getTypeDefaultValue(propertyType)
+                )
             }
         }
         .beginControlFlow("while (`in`.hasNext())")
         .beginControlFlow("when (`in`.nextName())")
         .apply {
-            properties.forEach {
-                val propertyName = it.simpleName.asString()
+            properties.forEachIndexed { index, property ->
+                val propertyName = property.simpleName.asString()
                 val propertyTypeAdapterName = "$propertyName\$TypeAdapter"
-                val serializedName = it.serializedName()
+                val serializedName = property.serializedName()
 
                 beginControlFlow("%S ->", serializedName)
                 addStatement("%N = this.%N.read(`in`)", propertyName, propertyTypeAdapterName)
+                val maskIndex = index / 32
+                addStatement("mask${maskIndex} = mask${maskIndex} and (1 shl ${index}).inv()")
                 endControlFlow()
             }
             beginControlFlow("else ->")
@@ -98,11 +110,38 @@ class KotlinClassProcessor(
         .addStatement("`in`.endObject()")
         .apply {
             val primaryConstructor = classDeclaration.primaryConstructor ?: return@apply
-            val constructorArgs = primaryConstructor.parameters.map {
-                val paramName = it.name!!.asString()
-                CodeBlock.of("%L = %L!!", paramName, paramName).toString()
+            val constructorHasDefaultArgs = primaryConstructor.parameters.any { it.hasDefault }
+
+            if (constructorHasDefaultArgs) {
+                val constructorArgClassesExpr = primaryConstructor.parameters.joinToString(", ") {
+                    val paramType = it.type.resolve()
+                    CodeBlock.of("%T::class.java", paramType.toTypeName()).toString()
+                }
+                val constructorArgsExpr = primaryConstructor.parameters.joinToString(", ") {
+                    val paramName = it.name!!.asString()
+                    CodeBlock.of("%L", paramName).toString()
+                }
+                val maskCount = (properties.count() + 31) / 32
+                val maskClassesExpr = Array(maskCount) { "Int::class.java" }.joinToString(", ")
+                val maskArgsExpr = Array(maskCount) { "mask${it / 32}" }.joinToString(", ")
+
+                addStatement("val defaultConstructorMarkerCls = Class.forName(\"kotlin.jvm.internal.DefaultConstructorMarker\")")
+                addStatement(
+                    "val ctor = %T::class.java.getDeclaredConstructor(" +
+                            "${constructorArgClassesExpr}, " +
+                            "${maskClassesExpr}, " +
+                            "defaultConstructorMarkerCls" +
+                            ")",
+                    className,
+                )
+                addStatement("return ctor.newInstance(${constructorArgsExpr}, ${maskArgsExpr}, null)")
+            } else {
+                val constructorArgs = primaryConstructor.parameters.map {
+                    val paramName = it.name!!.asString()
+                    CodeBlock.of("%L = %L!!", paramName, paramName).toString()
+                }
+                addStatement("return %T(%L)", className, constructorArgs.joinToString(", "))
             }
-            addStatement("return %T(%L)", className, constructorArgs.joinToString(", "))
         }
         .build()
 
