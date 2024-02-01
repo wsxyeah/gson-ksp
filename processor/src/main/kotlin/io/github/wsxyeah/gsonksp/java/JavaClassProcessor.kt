@@ -39,110 +39,17 @@ class JavaClassProcessor(
         val className = ClassName.get(packageName, classSimpleName)
         val parameterizedAdapterType = GsonJavaTypeNames.ParameterizedTypeAdapter(className)
 
-        val readMethodSpec = MethodSpec.methodBuilder("read")
-            .addModifiers(Modifier.PUBLIC)
-            .addAnnotation(Override::class.java)
-            .addParameter(GsonJavaTypeNames.JsonReader, "in")
-            .returns(className)
-            .addException(IOException::class.java)
-            // statements
-            .beginControlFlow("if (in.peek() == \$T.NULL)", GsonJavaTypeNames.JsonToken)
-            .addStatement("in.nextNull()")
-            .addStatement("return null")
-            .endControlFlow()
-            .addStatement("\$T out = new \$T()", className, className)
-            .addStatement("in.beginObject()")
-            .beginControlFlow("while (in.hasNext())")
-            .beginControlFlow("switch (in.nextName())")
-            .apply {
-                properties.forEach { property ->
-                    val propertyName = property.simpleName.asString()
-                    val propertyType = property.type.resolve()
-                    val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
-                    val isJavaPrimitive = propertyType.isJavaPrimitive()
-                    val serializedName = property.serializedName()
-                    val propertyAdapterName = "$propertyName\$Adapter"
-                    logger.warn("property[$propertyName]: $propertyType -> $propertyBoxedTypeName")
-
-                    beginControlFlow("case \$S:", serializedName)
-                    addStatement("\$T value = this.\$L.read(in)", propertyBoxedTypeName, propertyAdapterName)
-                    beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
-                    addStatement("out.$propertyName = value")
-                    endControlFlow()
-                    addStatement("break")
-                    endControlFlow()
-                }
-
-                beginControlFlow("default:")
-                addStatement("in.skipValue()")
-                addStatement("break")
-                endControlFlow()
-            }
-            .endControlFlow()
-            .endControlFlow()
-            .addStatement("in.endObject()")
-            .addStatement("return out")
-            // statements
-            .build()
-
-        val writeMethodSpec = MethodSpec.methodBuilder("write")
-            .addModifiers(Modifier.PUBLIC)
-            .addAnnotation(Override::class.java)
-            .addParameter(GsonJavaTypeNames.JsonWriter, "out")
-            .addParameter(className, "value")
-            .addException(IOException::class.java)
-            // statements
-            .beginControlFlow("if (value == null)")
-            .addStatement("out.nullValue()")
-            .addStatement("return")
-            .endControlFlow()
-            .addStatement("out.beginObject()")
-            .apply {
-                properties.forEach { property ->
-                    val propertyName = property.simpleName.asString()
-                    val propertyAdapterName = "$propertyName\$Adapter"
-                    val serializedName = property.serializedName()
-                    addStatement("out.name(\$S)", serializedName)
-                    addStatement("this.\$L.write(out, value.$propertyName)", propertyAdapterName)
-                }
-            }
-            .addStatement("out.endObject()")
-            // statements
-            .build()
-
-        val constructorBuilder = MethodSpec.constructorBuilder()
-            .addModifiers(Modifier.PUBLIC)
-            .addParameter(GsonJavaTypeNames.Gson, "gson")
-            .addStatement("this.gson = gson")
+        val typeAdapterFields = generateTypeAdapterFields(properties)
+        val constructor = generateConstructor(properties)
+        val readMethodSpec = generateReadMethod(className, properties)
+        val writeMethodSpec = generateWriteMethod(className, properties)
 
         val adapterTypeSpec = TypeSpec.classBuilder(adapterClassName)
             .addModifiers(Modifier.PUBLIC)
             .superclass(parameterizedAdapterType)
-            .apply {
-                properties.forEach { property ->
-                    val propertyType = property.type.resolve()
-                    val propertyJavaPoetTypeName = ksJavaPoet.toTypeName(propertyType)
-                    val propertyJavaPoetTypeExpr = ksJavaPoet.toTypeExpr(propertyType)
-                    val fieldAdapterName = "${property.simpleName.asString()}\$Adapter"
-
-                    logger.warn("fieldAdapter: $fieldAdapterName, $propertyJavaPoetTypeName, $propertyJavaPoetTypeExpr")
-                    addField(
-                        GsonJavaTypeNames.ParameterizedTypeAdapter(propertyJavaPoetTypeName),
-                        fieldAdapterName,
-                        Modifier.PRIVATE, Modifier.FINAL
-                    )
-                    constructorBuilder.addStatement(
-                        "this.\$L = gson.getAdapter((\$T<\$T>)\$T.get(\$L))",
-                        fieldAdapterName,
-                        GsonJavaTypeNames.TypeToken,
-                        propertyJavaPoetTypeName,
-                        GsonJavaTypeNames.TypeToken,
-                        propertyJavaPoetTypeExpr,
-                    )
-                }
-            }
             .addField(GsonJavaTypeNames.Gson, "gson", Modifier.PRIVATE, Modifier.FINAL)
-            .addMethod(constructorBuilder.build())
+            .addFields(typeAdapterFields)
+            .addMethod(constructor)
             .addMethod(readMethodSpec)
             .addMethod(writeMethodSpec)
             .build()
@@ -160,6 +67,120 @@ class JavaClassProcessor(
 
         return ClassName.get(packageName, adapterClassName)
     }
+
+    private fun generateTypeAdapterFields(properties: List<KSPropertyDeclaration>): List<FieldSpec> {
+        return properties.map { property ->
+            val propertyType = property.type.resolve()
+            val propertyJavaPoetTypeName = ksJavaPoet.toTypeName(propertyType)
+            val fieldAdapterName = "${property.simpleName.asString()}\$Adapter"
+
+            FieldSpec.builder(
+                GsonJavaTypeNames.ParameterizedTypeAdapter(propertyJavaPoetTypeName),
+                fieldAdapterName,
+                Modifier.PRIVATE, Modifier.FINAL
+            ).build()
+        }
+    }
+
+    private fun generateConstructor(properties: List<KSPropertyDeclaration>): MethodSpec {
+        val constructor = MethodSpec.constructorBuilder()
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(GsonJavaTypeNames.Gson, "gson")
+            .addStatement("this.gson = gson")
+        properties.forEach { property ->
+            val propertyType = property.type.resolve()
+            val propertyJavaPoetTypeName = ksJavaPoet.toTypeName(propertyType)
+            val propertyJavaPoetTypeExpr = ksJavaPoet.toTypeExpr(propertyType)
+            val fieldAdapterName = "${property.simpleName.asString()}\$Adapter"
+
+            constructor.addStatement(
+                "this.\$L = gson.getAdapter((\$T<\$T>)\$T.get(\$L))",
+                fieldAdapterName,
+                GsonJavaTypeNames.TypeToken,
+                propertyJavaPoetTypeName,
+                GsonJavaTypeNames.TypeToken,
+                propertyJavaPoetTypeExpr,
+            )
+        }
+        return constructor.build()
+    }
+
+    private fun generateReadMethod(
+        className: ClassName?,
+        properties: List<KSPropertyDeclaration>,
+    ): MethodSpec = MethodSpec.methodBuilder("read")
+        .addModifiers(Modifier.PUBLIC)
+        .addAnnotation(Override::class.java)
+        .addParameter(GsonJavaTypeNames.JsonReader, "in")
+        .returns(className)
+        .addException(IOException::class.java)
+        // statements
+        .beginControlFlow("if (in.peek() == \$T.NULL)", GsonJavaTypeNames.JsonToken)
+        .addStatement("in.nextNull()")
+        .addStatement("return null")
+        .endControlFlow()
+        .addStatement("\$T out = new \$T()", className, className)
+        .addStatement("in.beginObject()")
+        .beginControlFlow("while (in.hasNext())")
+        .beginControlFlow("switch (in.nextName())")
+        .apply {
+            properties.forEach { property ->
+                val propertyName = property.simpleName.asString()
+                val propertyType = property.type.resolve()
+                val propertyBoxedTypeName = ksJavaPoet.toBoxedClassName(propertyType.declaration)
+                val isJavaPrimitive = propertyType.isJavaPrimitive()
+                val serializedName = property.serializedName()
+                val propertyAdapterName = "$propertyName\$Adapter"
+                logger.warn("property[$propertyName]: $propertyType -> $propertyBoxedTypeName")
+
+                beginControlFlow("case \$S:", serializedName)
+                addStatement("\$T value = this.\$L.read(in)", propertyBoxedTypeName, propertyAdapterName)
+                beginControlFlow("if (value != null || !\$L)", isJavaPrimitive)
+                addStatement("out.$propertyName = value")
+                endControlFlow()
+                addStatement("break")
+                endControlFlow()
+            }
+
+            beginControlFlow("default:")
+            addStatement("in.skipValue()")
+            addStatement("break")
+            endControlFlow()
+        }
+        .endControlFlow()
+        .endControlFlow()
+        .addStatement("in.endObject()")
+        .addStatement("return out")
+        // statements
+        .build()
+
+    private fun generateWriteMethod(
+        className: ClassName?,
+        properties: List<KSPropertyDeclaration>,
+    ): MethodSpec = MethodSpec.methodBuilder("write")
+        .addModifiers(Modifier.PUBLIC)
+        .addAnnotation(Override::class.java)
+        .addParameter(GsonJavaTypeNames.JsonWriter, "out")
+        .addParameter(className, "value")
+        .addException(IOException::class.java)
+        // statements
+        .beginControlFlow("if (value == null)")
+        .addStatement("out.nullValue()")
+        .addStatement("return")
+        .endControlFlow()
+        .addStatement("out.beginObject()")
+        .apply {
+            properties.forEach { property ->
+                val propertyName = property.simpleName.asString()
+                val propertyAdapterName = "$propertyName\$Adapter"
+                val serializedName = property.serializedName()
+                addStatement("out.name(\$S)", serializedName)
+                addStatement("this.\$L.write(out, value.$propertyName)", propertyAdapterName)
+            }
+        }
+        .addStatement("out.endObject()")
+        // statements
+        .build()
 
     private fun generateTypeAdapterFactory(adapterClassNames: List<ClassName>) {
         if (adapterClassNames.isEmpty()) {
